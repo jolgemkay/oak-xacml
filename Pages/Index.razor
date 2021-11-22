@@ -1,0 +1,207 @@
+@page "/"
+@using oak_xacml.Data
+@using System.Xml.Linq
+@using System.IO
+@using System.Timers
+@inject AuthzForceService _authz
+
+<div class="container-fluid" style="padding-left: 30px; padding-top: 30px;">
+    <div class="row">
+        <h1>Oak-XACML</h1>
+        <p>A simple tool for testing XACML requests against a given policy</p>
+    </div>
+
+    <div class="row pt-2">
+        <div class="col-4">
+            <div class="row pt-2">
+                <label>Upload XACML-conform policy set xml file:</label>
+            </div>   
+            <div class="row pb-2">
+                <InputFile OnChange="@LoadPolicy" accept=".xml"/>
+                <button @onclick="btn1">debug</button>
+            </div> 
+            <div class="row pt-3 mr-4">
+                <label>Root Policy history:</label>
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th scope="col">RootVersion</th>
+                      <th scope="col">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                        @if(history != null){
+                            foreach(var h in history){
+                                if(history.IndexOf(h) == 0){
+                                    <tr>
+                                        <td>@(h.Version + "(Current)")</td>
+                                        <td>@h.Description</td>
+                                    </tr>
+                                }else{
+                                    <tr>
+                                        <td>@h.Version</td>
+                                        <td>@h.Description</td>
+                                    </tr>
+                                }
+                                
+                            }
+                        }
+                  </tbody>
+                </table>
+            </div> 
+        </div>
+        <div class="col-7">
+            <div class="row pt-2">
+                <label>Send XACML-conform reques xml file:</label>
+            </div>   
+            <div class="row pb-2">
+                <InputFile OnChange="@LoadRequest" accept=".xml"/>
+            </div>  
+            <div class="row pt-3 mr-4">
+                <label>Decision Request history:</label>
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Time</th>
+                      <th scope="col">Request</th>
+                      <th scope="col">RootVersion</th>
+                      <th scope="col">PolicySetDescription</th>
+                      <th scope="col">Decision</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                        @if(desicsionLog != null){
+                            foreach(var d in desicsionLog){
+                                    <tr>
+                                        <td>@d.TimeStamp</td>
+                                        <td>@d.requestFile</td>
+                                        <td>@d.Version</td>
+                                        <td>@d.Description</td>
+                                        <td>@d.decision</td>     
+                                    </tr>
+                                
+                            }
+                        }
+                  </tbody>
+                </table>
+            </div> 
+           
+        </div>
+    
+    </div>
+    <div class="row pt-2">
+        @if(!string.IsNullOrEmpty(alertMessage)){
+                if(alertMessage.Contains("error")){
+                    <div class="alert alert-warning" role="alert">
+                        @alertMessage
+                    </div>
+                }else{
+                     <div class="alert alert-success" role="alert">
+                        @alertMessage
+                    </div>
+                }
+                
+            }
+    </div>
+</div>
+
+@code
+{
+    private XDocument rootPolicy;
+    private XDocument request;
+    private XDocument policy;
+    private List<LogEntry> history;
+    private List<LogEntry> desicsionLog = new List<LogEntry>();
+    private string alertMessage;
+    private static Timer aTimer;
+    private void AlertTimer()
+    {
+        aTimer = new Timer(10000);
+        aTimer.Elapsed += SetAlertNull;
+        aTimer.Enabled = true;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        updateHistory();
+    }
+
+    public async void LoadPolicy(InputFileChangeEventArgs e)
+    {
+        if(validated(e)){
+            var reader = await new StreamReader(e.File.OpenReadStream()).ReadToEndAsync();
+            policy = XDocument.Parse(reader);
+            //Console.WriteLine(policy);
+            string res = await _authz.updateRootPolicy(policy);
+            if(res != null ){
+                alertMessage = res;
+                AlertTimer();
+                updateHistory();  
+            }
+            
+        }
+    }
+
+    public async void LoadRequest(InputFileChangeEventArgs e)
+    {
+        if(validated(e)){
+            var reader = await new StreamReader(e.File.OpenReadStream()).ReadToEndAsync();
+            request = XDocument.Parse(reader);
+            //Console.WriteLine(policy);
+            var des = await _authz.sendDescisionRequest(request);
+            if(des != null && des.Length < 30){
+                 desicsionLog.Add(new LogEntry{
+                     Version = history[0].Version,
+                     Description = history[0].Description,
+                     TimeStamp = DateTime.Now.ToString("yyyyMMdd-HH:mm"),
+                     requestFile = e.File.Name,
+                     decision = des
+                 });
+                            
+            }else if(des != null){
+                alertMessage = des;
+                AlertTimer();
+                             
+            }
+            await InvokeAsync(() => StateHasChanged());
+           
+        }
+
+    }
+
+    public void SetAlertNull(Object source, ElapsedEventArgs e){
+        aTimer.Enabled = false;
+        alertMessage = null; 
+        InvokeAsync(() => StateHasChanged());
+    }
+
+    public async void updateHistory(){
+        history = await _authz.listRootVersionHistory();
+        if(history.Count >= 5){
+            history = history.GetRange(0, 5);
+        }
+        await InvokeAsync(() => StateHasChanged());
+    }
+
+
+    public bool validated(InputFileChangeEventArgs e)
+    {
+        if(e.File.Size <= 50000){
+            return true;
+        }else{
+            
+            Console.WriteLine("File to large (max size is 50 KB)");
+            return false;
+        }
+        
+    }
+
+    public async void btn1(){
+        //_authz.listPolicies();
+        //_authz.getCurrentRootVersion();
+        //var cake = await _authz.getRootPolicyXml(null);
+        _authz.CreateXML();
+        
+    }
+
+}
