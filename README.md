@@ -1,9 +1,11 @@
 # oak-xacml
 
-Assignment 3 IMT4123. 
+DISCLAIMER:
+This should only be used for test and learning purposes. 
+It is not intended for any production environment. 
+
 
 Application for testing XACML policies and request against Authzforce server. 
-
 
 
 Application setup: 
